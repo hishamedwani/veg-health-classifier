@@ -9,7 +9,7 @@ import tensorflow as tf
 
 app = Flask(__name__)
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "veg_classifier.h5")
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "veg_classifier.keras")
 CLASSES_PATH = os.path.join(os.path.dirname(__file__), "class_names.json")
 IMG_SIZE = (224, 224)
 
