@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Veg Health Classifier</title>
+<style>
+  :root {
+    --green-dark: #1b5e20;
+    --green-mid: #2e7d32;
+    --green-light: #66bb6a;
+    --green-pale: #e8f5e9;
+    --white: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+    background: var(--green-pale);
+    color: #1b1b1b;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 24px 16px 60px;
+  }
+  header {
+    text-align: center;
+    margin-bottom: 24px;
+  }
+  header h1 {
+    color: var(--green-dark);
+    margin-bottom: 4px;
+  }
+  header p {
+    color: var(--green-mid);
+    margin: 0;
+  }
+  .card {
+    background: var(--white);
+    border-radius: 16px;
+    box-shadow: 0 4px 16px rgba(27, 94, 32, 0.15);
+    padding: 24px;
+    width: 100%;
+    max-width: 480px;
+  }
+  .mode-toggle {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .mode-toggle button {
+    flex: 1;
+    padding: 10px;
+    border: 2px solid var(--green-mid);
+    background: var(--white);
+    color: var(--green-mid);
+    border-radius: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: 0.2s;
+  }
+  .mode-toggle button.active {
+    background: var(--green-mid);
+    color: var(--white);
+  }
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  #drop-zone {
+    border: 2px dashed var(--green-light);
+    border-radius: 12px;
+    padding: 32px 16px;
+    text-align: center;
+    color: var(--green-dark);
+    cursor: pointer;
+    background: var(--green-pale);
+  }
+  #drop-zone:hover { background: #dcedc8; }
+
+  video, #preview-img {
+    width: 100%;
+    border-radius: 12px;
+    margin-top: 12px;
+    background: #000;
+  }
+
+  button.primary {
+    width: 100%;
+    margin-top: 16px;
+    padding: 12px;
+    background: var(--green-dark);
+    color: var(--white);
+    border: none;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: 0.2s;
+  }
+  button.primary:hover { background: var(--green-mid); }
+  button.primary:disabled { background: #a5d6a7; cursor: not-allowed; }
+
+  #result {
+    margin-top: 20px;
+    padding: 16px;
+    border-radius: 12px;
+    display: none;
+  }
+  #result.healthy { background: #e8f5e9; border: 2px solid var(--green-mid); }
+  #result.unhealthy { background: #fff3e0; border: 2px solid #ef6c00; }
+
+  #result h2 { margin: 0 0 8px; color: var(--green-dark); }
+  #result .status { font-weight: 700; }
+  #result .status.healthy-text { color: var(--green-dark); }
+  #result .status.unhealthy-text { color: #ef6c00; }
+  #result .confidence { color: #555; font-size: 14px; margin-top: 6px; }
+
+  #loading { display: none; text-align: center; color: var(--green-mid); margin-top: 12px; }
+
+  input[type="file"] { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🌱 Veg Health Classifier</h1>
+  <p>Upload or capture a photo of a potato, tomato, or bell pepper leaf</p>
+</header>
+
+<div class="card">
+  <div class="mode-toggle">
+    <button id="btn-upload-mode" class="active">Upload</button>
+    <button id="btn-camera-mode">Camera</button>
+  </div>
+
+  <div id="panel-upload" class="panel active">
+    <div id="drop-zone">
+      <p>Click to choose an image</p>
+      <input type="file" id="file-input" accept="image/*">
+    </div>
+    <img id="preview-img" style="display:none;">
+  </div>
+
+  <div id="panel-camera" class="panel">
+    <video id="video" autoplay playsinline></video>
+    <canvas id="canvas" style="display:none;"></canvas>
+    <button class="primary" id="btn-capture">Capture Photo</button>
+    <img id="captured-img" style="display:none;">
+  </div>
+
+  <button class="primary" id="btn-classify" disabled>Classify</button>
+  <div id="loading">Analyzing image…</div>
+
+  <div id="result">
+    <h2 id="result-veg"></h2>
+    <div class="status" id="result-status"></div>
+    <div class="confidence" id="result-confidence"></div>
+  </div>
+</div>
+
+<script>
+const btnUploadMode = document.getElementById('btn-upload-mode');
+const btnCameraMode = document.getElementById('btn-camera-mode');
+const panelUpload = document.getElementById('panel-upload');
+const panelCamera = document.getElementById('panel-camera');
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const previewImg = document.getElementById('preview-img');
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const btnCapture = document.getElementById('btn-capture');
+const capturedImg = document.getElementById('captured-img');
+const btnClassify = document.getElementById('btn-classify');
+const loadingEl = document.getElementById('loading');
+const resultEl = document.getElementById('result');
+
+let currentBlob = null;
+let stream = null;
+
+function switchMode(mode) {
+  if (mode === 'upload') {
+    btnUploadMode.classList.add('active');
+    btnCameraMode.classList.remove('active');
+    panelUpload.classList.add('active');
+    panelCamera.classList.remove('active');
+    stopCamera();
+  } else {
+    btnCameraMode.classList.add('active');
+    btnUploadMode.classList.remove('active');
+    panelCamera.classList.add('active');
+    panelUpload.classList.remove('active');
+    startCamera();
+  }
+  resultEl.style.display = 'none';
+  currentBlob = null;
+  btnClassify.disabled = true;
+}
+
+btnUploadMode.onclick = () => switchMode('upload');
+btnCameraMode.onclick = () => switchMode('camera');
+
+dropZone.onclick = () => fileInput.click();
+fileInput.onchange = () => {
+  const file = fileInput.files[0];
+  if (!file) return;
+  currentBlob = file;
+  previewImg.src = URL.createObjectURL(file);
+  previewImg.style.display = 'block';
+  btnClassify.disabled = false;
+  resultEl.style.display = 'none';
+};
+
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    video.srcObject = stream;
+    capturedImg.style.display = 'none';
+    video.style.display = 'block';
+  } catch (err) {
+    alert('Could not access camera: ' + err.message);
+  }
+}
+
+function stopCamera() {
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+}
+
+btnCapture.onclick = () => {
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  canvas.toBlob((blob) => {
+    currentBlob = blob;
+    capturedImg.src = URL.createObjectURL(blob);
+    capturedImg.style.display = 'block';
+    video.style.display = 'none';
+    btnClassify.disabled = false;
+  }, 'image/jpeg', 0.95);
+};
+
+btnClassify.onclick = async () => {
+  if (!currentBlob) return;
+  loadingEl.style.display = 'block';
+  resultEl.style.display = 'none';
+  btnClassify.disabled = true;
+
+  const formData = new FormData();
+  formData.append('image', currentBlob, 'image.jpg');
+
+  try {
+    const res = await fetch('/predict', { method: 'POST', body: formData });
+    const data = await res.json();
+
+    if (data.error) {
+      alert(data.error);
+    } else {
+      document.getElementById('result-veg').textContent = data.vegetable;
+      const statusEl = document.getElementById('result-status');
+      statusEl.textContent = data.is_healthy ? 'Healthy ✅' : `Condition: ${data.condition} ⚠️`;
+      statusEl.className = 'status ' + (data.is_healthy ? 'healthy-text' : 'unhealthy-text');
+      document.getElementById('result-confidence').textContent = `Confidence: ${data.confidence}%`;
+      resultEl.className = data.is_healthy ? 'healthy' : 'unhealthy';
+      resultEl.style.display = 'block';
+    }
+  } catch (err) {
+    alert('Something went wrong: ' + err.message);
+  } finally {
+    loadingEl.style.display = 'none';
+    btnClassify.disabled = false;
+  }
+};
+</script>
+</body>
+</html>
